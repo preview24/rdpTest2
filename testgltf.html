@@ -1,0 +1,313 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CLO 3D Garment Viewer</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #e9e9e9;
+    overflow: hidden;
+}
+
+header {
+    height: 60px;
+    padding: 0 24px;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #ddd;
+}
+
+header h2 {
+    font-size: 17px;
+    margin: 0;
+}
+
+header span {
+    color: #777;
+    font-size: 12px;
+}
+
+#viewer {
+    width: 100vw;
+    height: calc(100vh - 60px);
+    position: relative;
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+#loading {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 14px;
+    color: #555;
+    pointer-events: none;
+}
+
+#controls {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+}
+
+button {
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 11px 16px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #222;
+    color: white;
+}
+
+#hint {
+    position: absolute;
+    top: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ffffffdd;
+    border-radius: 20px;
+    padding: 9px 14px;
+    font-size: 12px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+    <h2>CLO 3D Viewer</h2>
+    <span>Interactive GLB Preview</span>
+</header>
+
+<div id="viewer">
+    <div id="loading">Loading 3D garment...</div>
+    <div id="hint">Drag to rotate · Scroll to zoom</div>
+
+    <div id="controls">
+        <button id="rotate">Pause Rotation</button>
+        <button id="reset">Reset View</button>
+        <button id="fullscreen">Fullscreen</button>
+    </div>
+</div>
+
+<!-- Three.js libraries -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const container = document.getElementById('viewer');
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe9e9e9);
+
+const camera = new THREE.PerspectiveCamera(
+    35,
+    container.clientWidth / container.clientHeight,
+    0.01,
+    1000
+);
+
+camera.position.set(0, 1.5, 4);
+
+const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: false
+});
+
+renderer.setSize(container.clientWidth, container.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+container.appendChild(renderer.domElement);
+
+// Lighting
+scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+
+const keyLight = new THREE.DirectionalLight(0xffffff, 3);
+keyLight.position.set(3, 5, 5);
+keyLight.castShadow = true;
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight(0xffffff, 1.5);
+fillLight.position.set(-4, 2, -3);
+scene.add(fillLight);
+
+const topLight = new THREE.DirectionalLight(0xffffff, 2);
+topLight.position.set(0, 5, 0);
+scene.add(topLight);
+
+// Controls
+const controls = new OrbitControls(camera, renderer.domElement);
+
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.enableZoom = true;
+controls.enablePan = true;
+controls.minDistance = 0.5;
+controls.maxDistance = 15;
+controls.target.set(0, 1, 0);
+
+// Model group
+const modelGroup = new THREE.Group();
+scene.add(modelGroup);
+
+let garment;
+let autoRotate = true;
+
+// Load GLB
+const loader = new GLTFLoader();
+
+loader.load(
+    './testgltf.glb',
+
+    function(gltf) {
+
+        garment = gltf.scene;
+
+        garment.traverse(function(object) {
+
+            if (object.isMesh) {
+
+                object.castShadow = true;
+                object.receiveShadow = true;
+
+                if (object.material) {
+                    object.material.side = THREE.DoubleSide;
+                }
+            }
+        });
+
+        // Center and scale model
+        const box = new THREE.Box3().setFromObject(garment);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+
+        garment.position.sub(center);
+
+        const maxDimension = Math.max(size.x, size.y, size.z);
+
+        if (maxDimension > 0) {
+            garment.scale.setScalar(2.5 / maxDimension);
+        }
+
+        modelGroup.add(garment);
+
+        // Camera target
+        controls.target.set(0, 0, 0);
+        camera.position.set(0, 0.8, 4);
+        controls.update();
+
+        document.getElementById('loading').style.display = 'none';
+    },
+
+    function(xhr) {
+        if (xhr.total) {
+            document.getElementById('loading').textContent =
+                'Loading: ' + Math.round(xhr.loaded / xhr.total * 100) + '%';
+        }
+    },
+
+    function(error) {
+        console.error(error);
+        document.getElementById('loading').textContent =
+            'Unable to load testgltf.glb. Check the file path and browser console.';
+    }
+);
+
+// Rotation button
+document.getElementById('rotate').onclick = function() {
+
+    autoRotate = !autoRotate;
+
+    controls.autoRotate = autoRotate;
+
+    this.textContent = autoRotate ?
+        'Pause Rotation' : 'Start Rotation';
+};
+
+controls.autoRotate = true;
+controls.autoRotateSpeed = 2;
+
+// Reset camera
+document.getElementById('reset').onclick = function() {
+
+    camera.position.set(0, 0.8, 4);
+    controls.target.set(0, 0, 0);
+    controls.update();
+};
+
+// Fullscreen
+document.getElementById('fullscreen').onclick = function() {
+
+    if (!document.fullscreenElement) {
+        container.requestFullscreen?.();
+    } else {
+        document.exitFullscreen?.();
+    }
+};
+
+// Resize
+window.addEventListener('resize', function() {
+
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+
+    renderer.setSize(
+        container.clientWidth,
+        container.clientHeight
+    );
+});
+
+// Animation
+function animate() {
+
+    requestAnimationFrame(animate);
+
+    controls.update();
+
+    renderer.render(scene, camera);
+}
+
+animate();
+
+</script>
+
+</body>
+</html>
